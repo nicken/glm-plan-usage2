@@ -46,8 +46,9 @@ function request(url, token) {
 }
 
 function buildClient() {
-  const token = getEnv("ANTHROPIC_AUTH_TOKEN");
-  const baseUrl = getEnv("ANTHROPIC_BASE_URL") || "https://open.bigmodel.cn/api/anthropic";
+  // Support both GLM_* and ANTHROPIC_* env vars (GLM_* takes priority)
+  const token = getEnv("GLM_AUTH_TOKEN") || getEnv("ANTHROPIC_AUTH_TOKEN");
+  const baseUrl = getEnv("GLM_BASE_URL") || getEnv("ANTHROPIC_BASE_URL") || "https://open.bigmodel.cn/api/anthropic";
   const apiUrl = baseUrl.replace(/\/api\/anthropic/, "/api").replace(/\/anthropic$/, "");
 
   return {
