@@ -150,7 +150,22 @@ Copy-Item target\release\glm-plan-usage.exe "$env:USERPROFILE\.claude\glm-plan-u
 }
 ```
 
-重启 Claude Code 即可生效。插件会自动读取 Claude Code 的 `ANTHROPIC_AUTH_TOKEN` 和 `ANTHROPIC_BASE_URL` 环境变量，无需额外配置。
+重启 Claude Code 即可生效。
+
+### 环境变量
+
+插件支持两种环境变量格式：
+
+| 用途 | 环境变量 | 优先级 |
+|------|----------|--------|
+| API Token | `GLM_AUTH_TOKEN` | 高 |
+| API Token | `ANTHROPIC_AUTH_TOKEN` | 低 |
+| Base URL | `GLM_BASE_URL` | 高 |
+| Base URL | `ANTHROPIC_BASE_URL` | 低 |
+
+- `GLM_*` 优先级高于 `ANTHROPIC_*`
+- 如果两者都设置了，优先使用 `GLM_*`
+- 默认 Base URL: `https://open.bigmodel.cn/api/anthropic`
 
 ### 支持的平台
 

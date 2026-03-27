@@ -150,7 +150,22 @@ Add to your Claude Code `settings.json`:
 }
 ```
 
-Restart Claude Code. The plugin automatically reads `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_BASE_URL` from Claude Code — no extra configuration needed.
+Restart Claude Code.
+
+### Environment Variables
+
+The plugin supports two environment variable formats:
+
+| Purpose | Variable | Priority |
+|---------|----------|----------|
+| API Token | `GLM_AUTH_TOKEN` | High |
+| API Token | `ANTHROPIC_AUTH_TOKEN` | Low |
+| Base URL | `GLM_BASE_URL` | High |
+| Base URL | `ANTHROPIC_BASE_URL` | Low |
+
+- `GLM_*` takes priority over `ANTHROPIC_*`
+- If both are set, `GLM_*` is used
+- Default Base URL: `https://open.bigmodel.cn/api/anthropic`
 
 ### Supported Platforms
 
