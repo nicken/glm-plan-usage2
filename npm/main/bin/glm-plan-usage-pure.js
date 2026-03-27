@@ -51,9 +51,15 @@ function buildClient() {
   const baseUrl = getEnv("GLM_BASE_URL") || getEnv("ANTHROPIC_BASE_URL") || "https://open.bigmodel.cn/api/anthropic";
   const apiUrl = baseUrl.replace(/\/api\/anthropic/, "/api").replace(/\/anthropic$/, "");
 
+  // Detect platform and timezone offset (in hours)
+  // Zhipu server expects Beijing time (UTC+8), ZAI server expects UTC (UTC+0)
+  const isZhipu = baseUrl.includes("bigmodel.cn") || baseUrl.includes("zhipu");
+  const tzOffsetMs = isZhipu ? 8 * 3600_000 : 0;
+
   return {
     token,
     apiUrl,
+    tzOffsetMs,
     async fetchQuota() {
       return request(`${this.apiUrl}/monitor/usage/quota/limit`, this.token);
     },
@@ -101,7 +107,11 @@ async function fetchStats(client) {
   // Fetch model usage with synced time window
   let callCount = null, tokensUsed = null;
   try {
-    const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}:${String(d.getSeconds()).padStart(2,"0")}`;
+    // Format date in platform timezone
+    const fmt = (d) => {
+      const t = new Date(d.getTime() + client.tzOffsetMs);
+      return `${t.getUTCFullYear()}-${String(t.getUTCMonth()+1).padStart(2,"0")}-${String(t.getUTCDate()).padStart(2,"0")} ${String(t.getUTCHours()).padStart(2,"0")}:${String(t.getUTCMinutes()).padStart(2,"0")}:${String(t.getUTCSeconds()).padStart(2,"0")}`;
+    };
     
     let start, end;
     if (resetTimeMs) {

@@ -770,6 +770,36 @@ if (resetTimeMs) {
 
 调用次数现在会在配额重置时同步归零。
 
+### Node.js 版本平台时区适配（2026-03-27）
+
+#### 问题描述
+Node.js 版本最初使用本地时间格式化日期字符串发送给 API。这在中国使用智谱平台时没有问题（本地时间 = 北京时间），但海外用户使用 ZAI 平台时，本地时间不是 UTC，会导致调用次数统计偏差。
+
+#### 解决方案
+在 `buildClient` 中检测平台并设置时区偏移：
+
+```javascript
+// Zhipu server expects Beijing time (UTC+8), ZAI server expects UTC (UTC+0)
+const isZhipu = baseUrl.includes("bigmodel.cn") || baseUrl.includes("zhipu");
+const tzOffsetMs = isZhipu ? 8 * 3600_000 : 0;
+```
+
+格式化日期时使用平台时区偏移：
+
+```javascript
+const fmt = (d) => {
+  const t = new Date(d.getTime() + client.tzOffsetMs);
+  return `${t.getUTCFullYear()}-${String(t.getUTCMonth()+1).padStart(2,"0")}-${String(t.getUTCDate()).padStart(2,"0")} ${String(t.getUTCHours()).padStart(2,"0")}:${String(t.getUTCMinutes()).padStart(2,"0")}:${String(t.getUTCSeconds()).padStart(2,"0")}`;
+};
+```
+
+#### 平台时区对照
+
+| 平台 | API 期望时区 | 偏移量 |
+|------|-------------|--------|
+| 智谱 (bigmodel.cn) | 北京时间 (UTC+8) | +8h |
+| ZAI (api.z.ai) | UTC (UTC+0) | +0h |
+
 ---
 
 ## 安装与配置
