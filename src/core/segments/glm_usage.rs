@@ -2,6 +2,7 @@ use super::Segment;
 use crate::api::{GlmApiClient, UsageStats};
 use crate::config::{Config, InputData};
 use crate::core::segments::{SegmentData, SegmentStyle};
+use crate::terminal::{CharMode, TerminalDetector};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -30,6 +31,7 @@ fn format_reset_time(reset_at: i64) -> Option<String> {
 /// GLM usage segment with caching
 pub struct GlmUsageSegment {
     cache: Arc<Mutex<Option<CacheEntry>>>,
+    char_mode: CharMode,
 }
 
 struct CacheEntry {
@@ -41,6 +43,7 @@ impl GlmUsageSegment {
     pub fn new() -> Self {
         Self {
             cache: Arc::new(Mutex::new(None)),
+            char_mode: TerminalDetector::detect(),
         }
     }
 
@@ -79,8 +82,14 @@ impl GlmUsageSegment {
         }
     }
 
-    fn format_stats(stats: &UsageStats) -> String {
+    fn format_stats(stats: &UsageStats, char_mode: CharMode) -> String {
         let mut parts = Vec::new();
+
+        // Character mapping based on mode
+        let (token_icon, clock_icon, chart_icon, calendar_icon, globe_icon, lightning_icon) = match char_mode {
+            CharMode::Emoji => ("🪙", "⏰", "📊", "📅", "🌐", "⚡"),
+            CharMode::Ascii => ("$", "T", "#", "%", "M", "k"),
+        };
 
         // Token usage with reset time
         if let Some(token) = &stats.token_usage {
@@ -89,27 +98,27 @@ impl GlmUsageSegment {
                 .and_then(format_reset_time)
                 .unwrap_or_else(|| "--:--".to_string());
 
-            parts.push(format!("🪙 {}% (⏰ {})", token.percentage, reset_time));
+            parts.push(format!("{} {}% ({} {})", token_icon, token.percentage, clock_icon, reset_time));
         }
 
         // Call count (raw number only)
         if let Some(call_count) = stats.call_count {
-            parts.push(format!("📊 {}", call_count));
+            parts.push(format!("{} {}", chart_icon, call_count));
         }
 
         // Weekly usage (new plan only, percentage)
         if let Some(weekly) = &stats.weekly_usage {
-            parts.push(format!("📅 {}%", weekly.percentage));
+            parts.push(format!("{} {}%", calendar_icon, weekly.percentage));
         }
 
         // MCP raw count
         if let Some(mcp) = &stats.mcp_usage {
-            parts.push(format!("🌐 {}/{}", mcp.used, mcp.limit));
+            parts.push(format!("{} {}/{}", globe_icon, mcp.used, mcp.limit));
         }
 
         // Token consumption (5-hour window)
         if let Some(tokens) = stats.tokens_used {
-            parts.push(format!("⚡ {}", format_tokens(tokens)));
+            parts.push(format!("{} {}", lightning_icon, format_tokens(tokens)));
         }
 
         if parts.is_empty() {
@@ -151,8 +160,15 @@ impl Segment for GlmUsageSegment {
         let stats = self.get_usage_stats(config);
 
         let text = match &stats {
-            Some(s) => Self::format_stats(s),
-            None => "🪙 0% · 📊 0 · ⚡ 0".to_string(),
+            Some(s) => Self::format_stats(s, self.char_mode),
+            None => {
+                // Fallback display
+                let (token_icon, _clock_icon, chart_icon, _, _, lightning_icon) = match self.char_mode {
+                    CharMode::Emoji => ("🪙", "⏰", "📊", "📅", "🌐", "⚡"),
+                    CharMode::Ascii => ("$", "T", "#", "%", "M", "k"),
+                };
+                format!("{} 0% · {} 0 · {} 0", token_icon, chart_icon, lightning_icon)
+            }
         };
 
         let style = match &stats {

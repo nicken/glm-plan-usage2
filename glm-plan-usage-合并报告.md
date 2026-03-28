@@ -1189,3 +1189,427 @@ function format(stats) {
 ```
 🪙 0% · 📊 0 · ⚡ 0
 ```
+
+---
+
+## 8. Windows 10 编码问题解决方案
+
+### 修改时间
+2026-03-28
+
+### 修改目的
+解决 Windows 10 控制台显示 emoji 乱码的问题，通过智能检测终端能力自动选择 emoji 或 ASCII 模式。
+
+### 问题根源
+
+1. **Windows 10 控制台字体不完整支持 Unicode emoji**
+   - Windows 10 的默认控制台字体（Consolas、Courier New）不支持完整 emoji 字符集
+   - emoji 显示为方框或问号等乱码字符
+
+2. **ANSI 转义码在旧版 PowerShell 中默认不显示**
+   - Windows PowerShell 5.1 默认不处理 ANSI 转义码（如 `\x1b[38;5;109m`）
+   - 颜色代码会直接显示为原始字符串
+
+3. **字符编码默认为 CP936/GBK 而非 UTF-8**
+   - Windows 控制台默认使用 CP936（简体中文 GBK）编码
+   - UTF-8 字符（emoji）无法正确编码和解码
+
+### 实现方案：智能自动检测与降级
+
+#### 核心策略
+- **Windows 10**：默认使用 ASCII 模式避免乱码
+- **Windows 11/Linux/macOS**：自动检测终端能力，支持则使用 emoji
+- **检测失败**：安全降级到 ASCII 模式
+
+#### 检测逻辑
+
+**1. 平台检测**
+```rust
+// Rust 版本 (src/terminal.rs)
+impl TerminalDetector {
+    pub fn detect() -> CharMode {
+        // 检查环境变量（用户手动覆盖）
+        if env::var("GLM_FORCE_EMOJI").is_ok() {
+            return CharMode::Emoji;
+        }
+        if env::var("GLM_FORCE_ASCII").is_ok() {
+            return CharMode::Ascii;
+        }
+
+        // 检测操作系统
+        if cfg!(windows) {
+            // Windows 10/11 默认使用 ASCII 模式
+            // 用户可通过 GLM_FORCE_EMOJI=1 强制使用 emoji
+            return CharMode::Ascii;
+        }
+
+        // Linux/macOS 默认使用 emoji 模式
+        CharMode::Emoji
+    }
+}
+```
+
+```javascript
+// JS 版本 (npm/main/bin/glm-plan-usage-pure.js)
+function detectCharMode() {
+  // 检查环境变量
+  if (getEnv("GLM_FORCE_EMOJI")) {
+    return CharMode.Emoji;
+  }
+  if (getEnv("GLM_FORCE_ASCII")) {
+    return CharMode.Ascii;
+  }
+
+  // Windows 平台检测
+  if (os.platform() === "win32") {
+    return CharMode.Ascii;
+  }
+
+  // Linux/macOS 使用 emoji
+  return CharMode.Emoji;
+}
+```
+
+**2. 回退机制**
+- 任何检测失败 → 降级到 ASCII 模式
+- 用户可通过环境变量强制指定模式
+
+#### 字符映射（符号风格）
+
+| Emoji | 含义 | ASCII 替代 |
+|-------|------|-----------|
+| 🪙 | Token 配额 | $ |
+| 📊 | 调用次数 | # |
+| ⚡ | Token 消耗 | k |
+| 📅 | 周限量 | % |
+| 🌐 | MCP 配额 | M |
+| ⏰ | 重置时间 | T |
+
+#### 输出示例
+
+**Emoji 模式**（Windows 11/Linux/macOS）：
+```
+🪙 5% (⏰ 23:00) · 📊 93 · 📅 25% · 🌐 0/1000 · ⚡ 3.38M
+```
+
+**ASCII 模式**（Windows 10 默认）：
+```
+$ 5% (T 23:00) · # 93 · % 25% · M 0/1000 · k 3.38M
+```
+
+### 代码变更
+
+#### 8.1 Rust 版本
+
+**新增文件：** `src/terminal.rs`
+
+```rust
+use std::env;
+
+/// Terminal character mode
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CharMode {
+    /// Use emoji characters
+    Emoji,
+    /// Use ASCII fallback characters
+    Ascii,
+}
+
+/// Terminal detector for character mode selection
+pub struct TerminalDetector;
+
+impl TerminalDetector {
+    /// Detect the best character mode for the current terminal
+    pub fn detect() -> CharMode {
+        // Check environment variables first (user override)
+        if env::var("GLM_FORCE_EMOJI").is_ok() {
+            return CharMode::Emoji;
+        }
+        if env::var("GLM_FORCE_ASCII").is_ok() {
+            return CharMode::Ascii;
+        }
+
+        // Detect Windows version
+        if cfg!(windows) {
+            // On Windows, default to ASCII mode to avoid encoding issues
+            // Users can override with GLM_FORCE_EMOJI=1 if they know their terminal supports it
+            return CharMode::Ascii;
+        }
+
+        // On Linux/macOS, default to emoji mode
+        CharMode::Emoji
+    }
+}
+```
+
+**修改文件：** `src/lib.rs`
+
+```rust
+// 新增导出
+pub mod terminal;
+```
+
+**修改文件：** `src/core/segments/glm_usage.rs`
+
+```rust
+use crate::terminal::{CharMode, TerminalDetector};
+
+// 在 GlmUsageSegment 中添加 char_mode 字段
+pub struct GlmUsageSegment {
+    cache: Arc<Mutex<Option<CacheEntry>>>,
+    char_mode: CharMode,  // 新增
+}
+
+impl GlmUsageSegment {
+    pub fn new() -> Self {
+        Self {
+            cache: Arc::new(Mutex::new(None)),
+            char_mode: TerminalDetector::detect(),  // 新增
+        }
+    }
+
+    // 修改 format_stats，根据模式输出对应字符
+    fn format_stats(stats: &UsageStats, char_mode: CharMode) -> String {
+        let mut parts = Vec::new();
+
+        // Character mapping based on mode
+        let (token_icon, clock_icon, chart_icon, calendar_icon, globe_icon, lightning_icon) = match char_mode {
+            CharMode::Emoji => ("🪙", "⏰", "📊", "📅", "🌐", "⚡"),
+            CharMode::Ascii => ("$", "T", "#", "%", "M", "k"),
+        };
+
+        // Token usage with reset time
+        if let Some(token) = &stats.token_usage {
+            let reset_time = token
+                .reset_at
+                .and_then(format_reset_time)
+                .unwrap_or_else(|| "--:--".to_string());
+
+            parts.push(format!("{} {}% ({} {})", token_icon, token.percentage, clock_icon, reset_time));
+        }
+
+        // Call count (raw number only)
+        if let Some(call_count) = stats.call_count {
+            parts.push(format!("{} {}", chart_icon, call_count));
+        }
+
+        // Weekly usage (new plan only, percentage)
+        if let Some(weekly) = &stats.weekly_usage {
+            parts.push(format!("{} {}%", calendar_icon, weekly.percentage));
+        }
+
+        // MCP raw count
+        if let Some(mcp) = &stats.mcp_usage {
+            parts.push(format!("{} {}/{}", globe_icon, mcp.used, mcp.limit));
+        }
+
+        // Token consumption (5-hour window)
+        if let Some(tokens) = stats.tokens_used {
+            parts.push(format!("{} {}", lightning_icon, format_tokens(tokens)));
+        }
+
+        if parts.is_empty() {
+            String::new()
+        } else {
+            parts.join(" · ")
+        }
+    }
+
+    // 零值显示也要根据模式
+    let text = match &stats {
+        Some(s) => Self::format_stats(s, self.char_mode),
+        None => {
+            let (token_icon, clock_icon, chart_icon, _, _, lightning_icon) = match self.char_mode {
+                CharMode::Emoji => ("🪙", "⏰", "📊", "📅", "🌐", "⚡"),
+                CharMode::Ascii => ("$", "T", "#", "%", "M", "k"),
+            };
+            format!("{} 0% · {} 0 · {} 0", token_icon, chart_icon, lightning_icon)
+        }
+    };
+}
+```
+
+#### 8.2 Node.js 版本
+
+**修改文件：** `npm/main/bin/glm-plan-usage-pure.js`
+
+```javascript
+const os = require("os");
+
+// Terminal character mode
+const CharMode = {
+  Emoji: "emoji",
+  Ascii: "ascii"
+};
+
+// Detect the best character mode for the current terminal
+function detectCharMode() {
+  // Check environment variables first (user override)
+  if (getEnv("GLM_FORCE_EMOJI")) {
+    return CharMode.Emoji;
+  }
+  if (getEnv("GLM_FORCE_ASCII")) {
+    return CharMode.Ascii;
+  }
+
+  // Detect Windows version
+  if (os.platform() === "win32") {
+    // On Windows, default to ASCII mode to avoid encoding issues
+    // Users can override with GLM_FORCE_EMOJI=1 if they know their terminal supports it
+    return CharMode.Ascii;
+  }
+
+  // On Linux/macOS, default to emoji mode
+  return CharMode.Emoji;
+}
+
+// 修改 format 函数支持 ASCII 模式
+function format(stats, charMode) {
+  // Character mapping based on mode
+  const icons = charMode === CharMode.Ascii ? {
+    token: "$",
+    clock: "T",
+    chart: "#",
+    calendar: "%",
+    globe: "M",
+    lightning: "k"
+  } : {
+    token: "🪙",
+    clock: "⏰",
+    chart: "📊",
+    calendar: "📅",
+    globe: "🌐",
+    lightning: "⚡"
+  };
+
+  // When no stats available, show zero usage
+  if (!stats) {
+    return `${color256(109)}\x1b[1m${icons.token} 0% · ${icons.chart} 0 · ${icons.lightning} 0${reset()}`;
+  }
+
+  const parts = [];
+
+  if (stats.tokenLimit) {
+    parts.push(`${icons.token} ${stats.tokenLimit.percentage}% (${icons.clock} ${fmtReset(stats.tokenLimit.nextResetTime)})`);
+  }
+
+  if (stats.callCount != null) {
+    parts.push(`${icons.chart} ${stats.callCount}`);
+  }
+
+  if (stats.weeklyLimit) {
+    parts.push(`${icons.calendar} ${stats.weeklyLimit.percentage}%`);
+  }
+
+  if (stats.mcpLimit) {
+    parts.push(`${icons.globe} ${stats.mcpLimit.currentValue}/${stats.mcpLimit.usage}`);
+  }
+
+  if (stats.tokensUsed != null) {
+    parts.push(`${icons.lightning} ${fmtTokens(stats.tokensUsed)}`);
+  }
+
+  if (parts.length === 0) return "";
+
+  return `${color256(109)}\x1b[1m${parts.join(" · ")}${reset()}`;
+}
+
+// main 函数中检测字符模式
+async function main() {
+  // Detect character mode
+  const charMode = detectCharMode();
+  log(`char mode: ${charMode}`);
+
+  // ... 其他代码 ...
+
+  // 使用 charMode 调用 format
+  const output = format(stats, charMode);
+  // ...
+}
+```
+
+### 配置选项
+
+#### 环境变量
+
+| 变量 | 作用 | 示例 |
+|------|------|------|
+| `GLM_FORCE_EMOJI=1` | 强制使用 emoji 模式 | `$env:GLM_FORCE_EMOJI="1"` |
+| `GLM_FORCE_ASCII=1` | 强制使用 ASCII 模式 | `$env:GLM_FORCE_ASCII="1"` |
+
+#### 使用方法
+
+**Windows PowerShell:**
+```powershell
+# 强制使用 emoji
+$env:GLM_FORCE_EMOJI="1"
+
+# 强制使用 ASCII
+$env:GLM_FORCE_ASCII="1"
+```
+
+**Linux/macOS Bash:**
+```bash
+# 强制使用 emoji
+export GLM_FORCE_EMOJI=1
+
+# 强制使用 ASCII
+export GLM_FORCE_ASCII=1
+```
+
+### 预期效果
+
+**Windows 10 用户（默认 ASCII 模式）**：
+```
+$ 5% (T 23:00) · # 93 · M 0/1000 · k 3.38M
+```
+- 无乱码，所有字符正常显示
+- 使用简单的符号替代 emoji
+
+**Windows 11 用户（自动 emoji 模式）**：
+```
+🪙 5% (⏰ 23:00) · 📊 93 · 🌐 0/1000 · ⚡ 3.38M
+```
+- Windows 11 终端支持完整 emoji
+- 显示更丰富的图标
+
+**Linux/macOS 用户（自动 emoji 模式）**：
+```
+🪙 5% (⏰ 23:00) · 📊 93 · 🌐 0/1000 · ⚡ 3.38M
+```
+- 终端通常支持 Unicode 和 emoji
+- 显示最佳视觉效果
+
+**手动强制模式**：
+- Windows 10 用户如果知道终端支持 emoji，可设置 `GLM_FORCE_EMOJI=1`
+- 其他平台用户如果遇到显示问题，可设置 `GLM_FORCE_ASCII=1`
+
+### 测试建议
+
+**1. Windows 10 测试**
+- 默认情况下应显示 ASCII 模式，无乱码
+- 测试 PowerShell 5.1 和 PowerShell 7
+- 测试 CMD 和 Git Bash
+
+**2. Windows 11 测试**
+- 默认情况下应显示 emoji 模式
+- 测试 Windows Terminal（支持完整 emoji）
+- 测试传统控制台窗口
+
+**3. Linux/macOS 测试**
+- 默认情况下应显示 emoji 模式
+- 测试不同终端（Terminal.app, iTerm2, GNOME Terminal 等）
+
+**4. 强制模式测试**
+- 测试 `GLM_FORCE_EMOJI=1` 在各平台的显示
+- 测试 `GLM_FORCE_ASCII=1` 在各平台的显示
+
+### 总结
+
+通过智能终端检测和字符映射机制，实现了跨平台的兼容性：
+- **Windows 10**：自动使用 ASCII 模式，避免乱码
+- **Windows 11/Linux/macOS**：自动使用 emoji 模式，提供最佳视觉体验
+- **手动控制**：用户可通过环境变量强制指定模式
+- **开箱即用**：无需配置，自动选择最适合的模式
+
+此方案同时修改了 Rust 和 Node.js 两个版本，确保功能一致性。

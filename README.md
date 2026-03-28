@@ -14,8 +14,13 @@ Claude Code 状态栏插件，实时显示 GLM（智谱/ZAI）算力套餐使用
 - 自动检测智谱（bigmodel.cn）和 ZAI（api.z.ai）平台
 - 仅 GLM 模型显示用量
 - 2 分钟缓存
+- **智能字符模式检测** - 自动选择 Emoji 或 ASCII 模式
+  - Windows 11/Linux/macOS → Emoji 模式 🪙📊⚡📅🌐⏰
+  - Windows 10 → ASCII 模式 $#k%MT（避免乱码）
 
 ## 显示示例
+
+### Emoji 模式（Windows 11/Linux/macOS）
 
 老套餐（无周限量）：
 ```
@@ -26,6 +31,26 @@ Claude Code 状态栏插件，实时显示 GLM（智谱/ZAI）算力套餐使用
 ```
 🪙 5% (⏰ 23:00) · 📊 93 · 📅 25% · 🌐 0/1000 · ⚡ 3.38M
 ```
+
+### ASCII 模式（Windows 10）
+
+老套餐（无周限量）：
+```
+$ 5% (T 23:00) · # 93 · M 0/1000 · k 3.38M
+```
+
+新套餐（有周限量）：
+```
+$ 5% (T 23:00) · # 93 · % 25% · M 0/1000 · k 3.38M
+```
+
+**字符映射：**
+- 🪙 → $ (Token 配额)
+- 📊 → # (调用次数)
+- ⚡ → k (Token 消耗)
+- 📅 → % (周限量)
+- 🌐 → M (MCP 配额)
+- ⏰ → T (重置时间)
 
 ## 两个版本
 
@@ -71,3 +96,43 @@ Claude Code 状态栏插件，实时显示 GLM（智谱/ZAI）算力套餐使用
 ### Windows 路径
 
 Windows 下将路径中的 `~` 替换为 `C:/Users/你的用户名`。
+
+## 配置选项
+
+### 字符模式（可选）
+
+程序会自动检测操作系统并选择合适的字符模式，无需手动配置。
+
+**自动检测：**
+- Windows 11（Build >= 22000）→ Emoji 模式
+- Windows 10（Build < 22000）→ ASCII 模式
+- Linux/macOS → Emoji 模式
+
+**手动强制覆盖（特殊情况下使用）：**
+
+如果你想手动指定字符模式，可以设置以下环境变量：
+
+**强制使用 Emoji 模式：**
+```powershell
+# Windows PowerShell
+$env:GLM_FORCE_EMOJI="1"
+
+# Linux/macOS
+export GLM_FORCE_EMOJI=1
+```
+
+**强制使用 ASCII 模式：**
+```powershell
+# Windows PowerShell
+$env:GLM_FORCE_ASCII="1"
+
+# Linux/macOS
+export GLM_FORCE_ASCII=1
+```
+
+**何时需要手动配置：**
+- 你的终端实际上支持 emoji，但自动检测误判为不支持
+- 你的终端不支持 emoji，显示乱码
+- 你想对比不同模式的显示效果
+
+**注意：** 大多数情况下不需要手动配置，自动检测已经足够好了。

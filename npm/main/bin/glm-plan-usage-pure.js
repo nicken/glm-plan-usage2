@@ -3,6 +3,7 @@
 
 const https = require("https");
 const http = require("http");
+const os = require("os");
 
 // Config
 const API_TIMEOUT = 5000;
@@ -12,6 +13,51 @@ let cache = null;
 
 function getEnv(name) {
   return process.env[name] || "";
+}
+
+// Terminal character mode
+const CharMode = {
+  Emoji: "emoji",
+  Ascii: "ascii"
+};
+
+// Detect the best character mode for the current terminal
+function detectCharMode() {
+  // Check environment variables first (user override)
+  if (getEnv("GLM_FORCE_EMOJI")) {
+    return CharMode.Emoji;
+  }
+  if (getEnv("GLM_FORCE_ASCII")) {
+    return CharMode.Ascii;
+  }
+
+  // Detect Windows version
+  if (os.platform() === "win32") {
+    // Windows 11 (Build >= 22000) supports emoji properly
+    // Windows 10 (Build < 22000) should use ASCII to avoid encoding issues
+    if (isWindows11()) {
+      return CharMode.Emoji;
+    }
+    // Windows 10: default to ASCII mode to avoid encoding issues
+    // Users can override with GLM_FORCE_EMOJI=1 if they know their terminal supports it
+    return CharMode.Ascii;
+  }
+
+  // On Linux/macOS, default to emoji mode
+  return CharMode.Emoji;
+}
+
+// Check if running on Windows 11 (Build >= 22000)
+function isWindows11() {
+  try {
+    const { execSync } = require("child_process");
+    const buildStr = execSync("powershell -NoProfile -Command \"[System.Environment]::OSVersion.Version.Build\"", { encoding: "utf8" }).trim();
+    const build = parseInt(buildStr, 10);
+    return !isNaN(build) && build >= 22000; // Windows 11 starts from build 22000
+  } catch (e) {
+    // If detection fails, assume Windows 10 (safe default)
+    return false;
+  }
 }
 
 function request(url, token) {
@@ -137,32 +183,49 @@ function reset() {
   return "\x1b[0m";
 }
 
-function format(stats) {
+function format(stats, charMode) {
+  // Character mapping based on mode
+  const icons = charMode === CharMode.Ascii ? {
+    token: "$",
+    clock: "T",
+    chart: "#",
+    calendar: "%",
+    globe: "M",
+    lightning: "k"
+  } : {
+    token: "🪙",
+    clock: "⏰",
+    chart: "📊",
+    calendar: "📅",
+    globe: "🌐",
+    lightning: "⚡"
+  };
+
   // When no stats available, show zero usage
   if (!stats) {
-    return `${color256(109)}\x1b[1m🪙 0% · 📊 0 · ⚡ 0${reset()}`;
+    return `${color256(109)}\x1b[1m${icons.token} 0% · ${icons.chart} 0 · ${icons.lightning} 0${reset()}`;
   }
 
   const parts = [];
 
   if (stats.tokenLimit) {
-    parts.push(`🪙 ${stats.tokenLimit.percentage}% (⏰ ${fmtReset(stats.tokenLimit.nextResetTime)})`);
+    parts.push(`${icons.token} ${stats.tokenLimit.percentage}% (${icons.clock} ${fmtReset(stats.tokenLimit.nextResetTime)})`);
   }
 
   if (stats.callCount != null) {
-    parts.push(`📊 ${stats.callCount}`);
+    parts.push(`${icons.chart} ${stats.callCount}`);
   }
 
   if (stats.weeklyLimit) {
-    parts.push(`📅 ${stats.weeklyLimit.percentage}%`);
+    parts.push(`${icons.calendar} ${stats.weeklyLimit.percentage}%`);
   }
 
   if (stats.mcpLimit) {
-    parts.push(`🌐 ${stats.mcpLimit.currentValue}/${stats.mcpLimit.usage}`);
+    parts.push(`${icons.globe} ${stats.mcpLimit.currentValue}/${stats.mcpLimit.usage}`);
   }
 
   if (stats.tokensUsed != null) {
-    parts.push(`⚡ ${fmtTokens(stats.tokensUsed)}`);
+    parts.push(`${icons.lightning} ${fmtTokens(stats.tokensUsed)}`);
   }
 
   if (parts.length === 0) return "";
@@ -180,6 +243,10 @@ async function main() {
     if (debug) process.stderr.write(`[glm] ${msg}\n`);
     logFile.write(line);
   };
+
+  // Detect character mode
+  const charMode = detectCharMode();
+  log(`char mode: ${charMode}`);
 
   // Read stdin
   let inputText = "";
@@ -221,7 +288,7 @@ async function main() {
     log(`stats: ${stats ? "ok" : "null"}`);
   }
 
-  const output = format(stats);
+  const output = format(stats, charMode);
   log(`output: ${output ? output.length + " chars" : "empty"}`);
   if (output) process.stdout.write(output);
 }

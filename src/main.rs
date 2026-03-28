@@ -2,6 +2,7 @@ mod api;
 mod cli;
 mod config;
 mod core;
+mod terminal;
 
 use clap::Parser;
 use config::{Config, ConfigLoader, InputData};
