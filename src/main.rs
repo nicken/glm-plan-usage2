@@ -6,7 +6,7 @@ mod terminal;
 
 use clap::Parser;
 use config::{Config, ConfigLoader, InputData};
-use core::{GlmUsageSegment, StatusLineGenerator};
+use core::{GlmUsageSegment, MiniMaxUsageSegment, KimiUsageSegment, StatusLineGenerator};
 use std::fs::OpenOptions;
 use std::io::Write;
 
@@ -96,17 +96,23 @@ fn main() {
 
     log(&format!("model: {:?}", input.model.as_ref().map(|m| &m.id)));
 
-    // Only show for GLM models
+    // Only show for supported models
     if let Some(model) = &input.model {
         let model_id = model.id.to_lowercase();
-        if !model_id.contains("glm") && !model_id.contains("chatglm") {
-            log("not glm model, skipping");
+        let is_glm = model_id.contains("glm") || model_id.contains("chatglm");
+        let is_minimax = model_id.contains("minimax");
+        let is_kimi = model_id.contains("kimi");
+        if !is_glm && !is_minimax && !is_kimi {
+            log("not a supported model, skipping");
             return;
         }
     }
 
-    // Create status line generator
-    let generator = StatusLineGenerator::new().add_segment(Box::new(GlmUsageSegment::new()));
+    // Create status line generator with all segments
+    let generator = StatusLineGenerator::new()
+        .add_segment(Box::new(GlmUsageSegment::new()))
+        .add_segment(Box::new(MiniMaxUsageSegment::new()))
+        .add_segment(Box::new(KimiUsageSegment::new()));
 
     // Generate output
     let output = generator.generate(&input, &config);

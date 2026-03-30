@@ -2,7 +2,7 @@
 
 English | [简体中文](README.md)
 
-Claude Code status bar plugin that displays real-time GLM (ZHIPU/ZAI) usage statistics.
+Claude Code status bar plugin that displays real-time GLM / MiniMax / Kimi multi-platform usage statistics.
 
 ## Features
 
@@ -11,8 +11,8 @@ Claude Code status bar plugin that displays real-time GLM (ZHIPU/ZAI) usage stat
 - ⚡ 5-hour Token consumption
 - 📅 Weekly quota percentage (new plans)
 - 🌐 30-day MCP quota
-- Auto-detect ZHIPU (bigmodel.cn) and ZAI (api.z.ai) platforms
-- Only show usage for GLM models
+- Auto-detect ZHIPU (bigmodel.cn), ZAI (api.z.ai), MiniMax (minimaxi.com), Kimi (kimi.com) platforms
+- Auto-identify GLM / MiniMax / Kimi models; non-supported models are hidden
 - 2-minute cache
 - **Smart character mode detection** - Automatically choose Emoji or ASCII mode
   - Windows 11 → Emoji mode 🪙📊⚡📅🌐⏰
@@ -20,28 +20,50 @@ Claude Code status bar plugin that displays real-time GLM (ZHIPU/ZAI) usage stat
 
 ## Display Example
 
-### Emoji Mode (Windows 11)
+### GLM Platform
 
 Old plan (no weekly quota):
 ```
-🪙 5% (⏰ 23:00) · 📊 93 · 🌐 0/1000 · ⚡ 3.38M
+GLM 🪙 5% (⏰ 23:00) · 📊 93 · 🌐 0/1000 · ⚡ 3.38M
 ```
 
 New plan (with weekly quota):
 ```
-🪙 5% (⏰ 23:00) · 📊 93 · 📅 25% · 🌐 0/1000 · ⚡ 3.38M
+GLM 🪙 5% (⏰ 23:00) · 📊 93 · 📅 25% · 🌐 0/1000 · ⚡ 3.38M
+```
+
+### MiniMax Platform
+
+```
+MiniMax 🪙 5% (⏰ 23:00) · 📊 93/1200 · 📅 25%
+```
+
+### Kimi Platform
+
+```
+Kimi 🪙 12% (⏰ 18:00) · 📅 8%
 ```
 
 ### ASCII Mode (Windows 10)
 
-Old plan (no weekly quota):
+GLM old plan (no weekly quota):
 ```
-$ 5% (T 23:00) · # 93 · M 0/1000 · k 3.38M
+GLM $ 5% (T 23:00) · # 93 · M 0/1000 · k 3.38M
 ```
 
-New plan (with weekly quota):
+GLM new plan (with weekly quota):
 ```
-$ 5% (T 23:00) · # 93 · % 25% · M 0/1000 · k 3.38M
+GLM $ 5% (T 23:00) · # 93 · % 25% · M 0/1000 · k 3.38M
+```
+
+MiniMax:
+```
+MiniMax $ 5% (T 23:00) · # 93/1200 · % 25%
+```
+
+Kimi:
+```
+Kimi $ 12% (T 18:00) · % 8%
 ```
 
 **Character Mapping:**

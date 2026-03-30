@@ -117,6 +117,15 @@ function fmtReset(ms) {
   return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
+function fmtIsoReset(isoStr) {
+  if (!isoStr) return "--:--";
+  try {
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return "--:--";
+    return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
+  } catch { return "--:--"; }
+}
+
 function fmtTokens(n) {
   if (n < 0) return "N/A";
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
@@ -232,7 +241,162 @@ function format(stats, charMode) {
   return `${color256(109)}\x1b[1mGLM ${parts.join(" · ")}${reset()}`;
 }
 
-// Main
+// ===== MiniMax =====
+
+function buildMiniMaxClient() {
+  const token = getEnv("ANTHROPIC_AUTH_TOKEN");
+  const baseUrl = getEnv("ANTHROPIC_BASE_URL") || "";
+  if (!baseUrl.includes("minimaxi.com") && !baseUrl.includes("minimax.io")) return null;
+
+  // Extract scheme + domain
+  const match = baseUrl.match(/^(https?:\/\/[^/]+)/);
+  const domain = match ? match[1] : baseUrl;
+
+  return {
+    token,
+    domain,
+    async fetchRemains() {
+      return request(`${domain}/v1/api/openplatform/coding_plan/remains`, this.token);
+    },
+  };
+}
+
+let minimaxCache = null;
+
+async function fetchMiniMaxStats(client) {
+  if (minimaxCache && Date.now() - minimaxCache.ts < CACHE_TTL_MS) return minimaxCache.data;
+
+  let body = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    body = await client.fetchRemains().catch(() => null);
+    if (body) break;
+    if (attempt < 2) await new Promise(r => setTimeout(r, 100));
+  }
+  if (!body) return null;
+
+  // Find coding model: model_name starts with "MiniMax-M"
+  const codingModel = (body.model_remains || []).find(m => m.model_name && m.model_name.startsWith("MiniMax-M"));
+  if (!codingModel) return null;
+
+  const intervalPct = codingModel.current_interval_total_count > 0
+    ? Math.round((codingModel.current_interval_usage_count / codingModel.current_interval_total_count) * 100)
+    : 0;
+
+  const hasWeekly = codingModel.current_weekly_total_count > 0;
+  const weeklyPct = hasWeekly
+    ? Math.round((codingModel.current_weekly_usage_count / codingModel.current_weekly_total_count) * 100)
+    : null;
+
+  const result = {
+    intervalPct,
+    intervalUsed: codingModel.current_interval_usage_count,
+    intervalTotal: codingModel.current_interval_total_count,
+    resetTime: codingModel.end_time || null,
+    weeklyPct,
+  };
+  minimaxCache = { data: result, ts: Date.now() };
+  return result;
+}
+
+function formatMiniMax(stats, charMode) {
+  const icons = charMode === CharMode.Ascii
+    ? { token: "$", clock: "T", chart: "#", calendar: "%" }
+    : { token: "🪙", clock: "⏰", chart: "📊", calendar: "📅" };
+
+  if (!stats) {
+    return `${color256(208)}\x1b[1mMiniMax ${icons.token} % (${icons.clock} --:--) · ${icons.chart} / · ${icons.calendar} %${reset()}`;
+  }
+
+  const parts = [];
+  parts.push(`${icons.token} ${stats.intervalPct}% (${icons.clock} ${fmtReset(stats.resetTime)})`);
+  parts.push(`${icons.chart} ${stats.intervalUsed}/${stats.intervalTotal}`);
+  if (stats.weeklyPct != null) {
+    parts.push(`${icons.calendar} ${stats.weeklyPct}%`);
+  }
+
+  return `${color256(208)}\x1b[1mMiniMax ${parts.join(" · ")}${reset()}`;
+}
+
+// ===== Kimi =====
+
+function buildKimiClient() {
+  const token = getEnv("ANTHROPIC_API_KEY");
+  const baseUrl = getEnv("ANTHROPIC_BASE_URL") || "";
+  if (!baseUrl.includes("kimi.com")) return null;
+
+  // Extract scheme + domain
+  const match = baseUrl.match(/^(https?:\/\/[^/]+)/);
+  const domain = match ? match[1] : baseUrl;
+
+  return {
+    token,
+    domain,
+    async fetchUsages() {
+      return request(`${domain}/coding/v1/usages`, this.token);
+    },
+  };
+}
+
+let kimiCache = null;
+
+async function fetchKimiStats(client) {
+  if (kimiCache && Date.now() - kimiCache.ts < CACHE_TTL_MS) return kimiCache.data;
+
+  let body = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    body = await client.fetchUsages().catch(() => null);
+    if (body && body.limits) break;
+    if (attempt < 2) await new Promise(r => setTimeout(r, 100));
+  }
+  if (!body || !body.limits) return null;
+
+  // Find 5-hour window: duration=300, time_unit=TIME_UNIT_MINUTE
+  const fiveHour = body.limits.find(l => l.window && l.window.duration === 300 && (l.window.time_unit === "TIME_UNIT_MINUTE" || l.window.timeUnit === "TIME_UNIT_MINUTE"));
+  // Find weekly window: duration=10080
+  const weekly = body.limits.find(l => l.window && l.window.duration === 10080);
+
+  if (!fiveHour || !weekly) return null;
+
+  const fiveHourPct = fiveHour.detail.limit > 0
+    ? Math.round(((fiveHour.detail.limit - fiveHour.detail.remaining) / fiveHour.detail.limit) * 100)
+    : 0;
+
+  const weeklyPct = weekly.detail.limit > 0
+    ? Math.round(((weekly.detail.limit - weekly.detail.remaining) / weekly.detail.limit) * 100)
+    : 0;
+
+  // Kimi reset_time is an ISO 8601 string (e.g. "2026-03-30T18:00:00+08:00")
+  const fiveHourReset = fiveHour.detail.resetTime || fiveHour.detail.reset_time || null;
+  const weeklyReset = weekly.detail.resetTime || weekly.detail.reset_time || null;
+
+  const result = {
+    fiveHourPct,
+    fiveHourReset,
+    weeklyPct,
+    weeklyReset,
+  };
+  kimiCache = { data: result, ts: Date.now() };
+  return result;
+}
+
+function formatKimi(stats, charMode) {
+  const icons = charMode === CharMode.Ascii
+    ? { token: "$", clock: "T", calendar: "%" }
+    : { token: "🪙", clock: "⏰", calendar: "📅" };
+
+  if (!stats) {
+    return `${color256(79)}\x1b[1mKimi ${icons.token} % (${icons.clock} --:--) · ${icons.calendar} %${reset()}`;
+  }
+
+  const parts = [];
+  parts.push(`${icons.token} ${stats.fiveHourPct}% (${icons.clock} ${fmtIsoReset(stats.fiveHourReset)})`);
+  parts.push(`${icons.calendar} ${stats.weeklyPct}%`);
+
+  return `${color256(79)}\x1b[1mKimi ${parts.join(" · ")}${reset()}`;
+}
+
+// ===== Main =====
+
 async function main() {
   const debug = process.env.GLM_DEBUG === "1";
   const logFile = require("fs").createWriteStream(require("path").join(require("os").homedir(), ".claude", "glm-plan-usage", "debug.log"), { flags: "a" });
@@ -269,23 +433,45 @@ async function main() {
 
   log(`model: ${input.model?.id}`);
 
-  // Only show for GLM models
-  if (input.model?.id) {
-    const id = input.model.id.toLowerCase();
-    if (!id.includes("glm") && !id.includes("chatglm")) {
-      log("not glm model, skipping");
-      return;
+  // Detect platform from model.id
+  const modelId = (input.model?.id || "").toLowerCase();
+  const isGlm = modelId.includes("glm") || modelId.includes("chatglm");
+  const isMiniMax = modelId.includes("minimax");
+  const isKimi = modelId.includes("kimi");
+
+  if (!isGlm && !isMiniMax && !isKimi) {
+    log("not a supported model, skipping");
+    return;
+  }
+
+  let output = "";
+
+  if (isMiniMax) {
+    const client = buildMiniMaxClient();
+    if (client && client.token) {
+      const stats = await fetchMiniMaxStats(client);
+      output = formatMiniMax(stats, charMode);
+    } else {
+      output = formatMiniMax(null, charMode);
     }
+  } else if (isKimi) {
+    const client = buildKimiClient();
+    if (client && client.token) {
+      const stats = await fetchKimiStats(client);
+      output = formatKimi(stats, charMode);
+    } else {
+      output = formatKimi(null, charMode);
+    }
+  } else {
+    // GLM
+    const client = buildClient();
+    let stats = null;
+    if (client.token) {
+      stats = await fetchStats(client);
+    }
+    output = format(stats, charMode);
   }
 
-  const client = buildClient();
-
-  let stats = null;
-  if (client.token) {
-    stats = await fetchStats(client);
-  }
-
-  const output = format(stats, charMode);
   log(`output: ${output ? output.length + " chars" : "empty"}`);
   if (output) process.stdout.write(output);
 }

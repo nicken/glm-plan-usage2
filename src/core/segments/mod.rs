@@ -1,4 +1,6 @@
 pub mod glm_usage;
+pub mod minimax_usage;
+pub mod kimi_usage;
 
 use crate::config::{Config, InputData};
 

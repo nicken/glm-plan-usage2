@@ -1,6 +1,6 @@
 # GLM Plan Usage 完整修改报告
 
-> 本报告合并了四份修改报告：环境变量与时间显示修改、周限量支持、模型判断功能、调用次数显示（含时间窗口同步修复）
+> 本报告合并了多份修改报告：环境变量与时间显示修改、周限量支持、模型判断功能、调用次数显示、纯 Node.js 实现、Rust/JS 版本统一、环境变量与零值显示修正、Windows 10 编码问题、GLM 前缀显示、MiniMax/Kimi 多平台支持
 
 ---
 
@@ -13,6 +13,9 @@
 5. [纯 Node.js 实现](#5-纯-nodejs-实现)
 6. [Rust/JS 版本统一与 TLS 修复](#6-rustjs-版本统一与-tls-修复)
 7. [环境变量与零值显示修正（2026-03-29）](#7-环境变量与零值显示修正2026-03-29)
+8. [Windows 10 编码问题解决方案](#8-windows-10-编码问题解决方案)
+9. [GLM 前缀显示（2026-03-30）](#9-glm-前缀显示2026-03-30)
+10. [MiniMax/Kimi 多平台支持（2026-03-30）](#10-minimaxkimi-多平台支持2026-03-30)
 
 ---
 
@@ -1851,3 +1854,275 @@ if (!stats) {
 1. **环境变量统一**：只使用 `ANTHROPIC_AUTH_TOKEN` 和 `ANTHROPIC_BASE_URL`，删除 `GLM_*` 变量
 2. **零值显示优化**：无数据时显示占位符格式而非完全空白，保留界面结构
 3. **双版本同步**：Rust 和 JS 版本修改保持一致
+
+---
+
+## 10. MiniMax/Kimi 多平台支持（2026-03-30）
+
+### 修改时间
+2026-03-30
+
+### 修改目的
+在 GLM 平台的基础上，新增 MiniMax 和 Kimi（月之暗面）两个平台的状态栏用量显示支持。用户使用 cc-switch 切换不同平台时，状态栏自动显示对应平台的用量信息。
+
+### 设计原则
+
+1. **零配置**：复用 `ANTHROPIC_BASE_URL` 和认证环境变量（`ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY`），无需额外配置
+2. **自动路由**：通过 `model.id` 自动判断当前使用哪个平台
+3. **遵循现有模式**：复用 Segment trait、缓存机制、ASCII 降级等已有架构
+4. **双版本同步**：Rust 和 JS 版本功能完全一致
+
+### 平台检测与路由逻辑
+
+| 平台 | 域名匹配 | 模型匹配 | 认证变量 | API 端点 |
+|------|---------|---------|---------|---------|
+| GLM | `bigmodel.cn` / `zhipu` / `z.ai` | `glm` / `chatglm` | `ANTHROPIC_AUTH_TOKEN` | `/api/monitor/usage/quota/limit` |
+| MiniMax | `minimaxi.com` / `minimax.io` | `minimax` | `ANTHROPIC_AUTH_TOKEN` | `/v1/api/openplatform/coding_plan/remains` |
+| Kimi | `kimi.com` | `kimi` | `ANTHROPIC_API_KEY` | `/coding/v1/usages` |
+| 其他 | — | 不匹配 | — | 不显示 |
+
+**路由流程**：
+```
+读取 stdin JSON → 提取 model.id → 小写化
+  ├─ 包含 "minimax" → 调用 MiniMax API → 显示 MiniMax 格式
+  ├─ 包含 "kimi"    → 调用 Kimi API    → 显示 Kimi 格式
+  ├─ 包含 "glm"/"chatglm" → 调用 GLM API → 显示 GLM 格式
+  └─ 其他            → 不显示（空输出）
+```
+
+### 文件变更
+
+#### 新增文件（6个）
+
+| 文件 | 说明 |
+|------|------|
+| `src/api/minimax_types.rs` | MiniMax API 响应类型定义 |
+| `src/api/minimax_client.rs` | MiniMax API 客户端 |
+| `src/api/kimi_types.rs` | Kimi API 响应类型定义 |
+| `src/api/kimi_client.rs` | Kimi API 客户端 |
+| `src/core/segments/minimax_usage.rs` | MiniMax 状态栏 Segment |
+| `src/core/segments/kimi_usage.rs` | Kimi 状态栏 Segment |
+
+#### 修改文件（5个 Rust + 1个 JS）
+
+| 文件 | 修改内容 |
+|------|---------|
+| `src/api/mod.rs` | 添加 `pub mod minimax_client/types` 和 `pub mod kimi_client/types` |
+| `src/core/segments/mod.rs` | 添加 `pub mod minimax_usage` 和 `pub mod kimi_usage` |
+| `src/core/mod.rs` | 导出 `MiniMaxUsageSegment` 和 `KimiUsageSegment` |
+| `src/main.rs` | 导入并注册 3 个 Segment，模型过滤逻辑 |
+| `src/config/types.rs` | 添加 `default_minimax_usage()` (color 208) 和 `default_kimi_usage()` (color 79) |
+| `npm/main/bin/glm-plan-usage-pure.js` | 添加 MiniMax/Kimi 客户端、格式化、路由逻辑 |
+
+### MiniMax 集成
+
+#### API 响应结构
+
+```rust
+pub struct MiniMaxRemainsResponse {
+    pub base_resp: Option<MiniMaxBaseResp>,
+    pub model_remains: Vec<MiniMaxModelRemains>,
+}
+
+pub struct MiniMaxModelRemains {
+    pub model_name: String,                          // 如 "MiniMax-M1"
+    pub current_interval_total_count: i64,            // 5小时总配额
+    pub current_interval_usage_count: i64,            // 5小时已使用
+    pub end_time: Option<i64>,                        // 重置时间（Unix 秒）
+    pub current_weekly_total_count: i64,              // 周总配额（老套餐=0）
+    pub current_weekly_usage_count: i64,              // 周已使用
+    pub weekly_end_time: Option<i64>,                 // 周重置时间
+}
+```
+
+#### 模型过滤
+只匹配 `model_name` 以 `"MiniMax-M"` 开头的模型（编码模型）。
+
+#### 周限量判断
+- `current_weekly_total_count == 0` → 老套餐，不显示 📅
+- `current_weekly_total_count > 0` → 新套餐，显示 📅
+
+#### 显示格式
+
+**有数据时**：
+```
+MiniMax 🪙 5% (⏰ 23:00) · 📊 93/1200 · 📅 25%
+```
+
+**无数据时**：
+```
+MiniMax 🪙 % (⏰ --:--) · 📊 / · 📅 %
+```
+
+**ASCII 模式（Windows 10）**：
+```
+MiniMax $ 5% (T 23:00) · # 93/1200 · % 25%
+```
+
+**颜色**：256色 208（橙色），加粗
+
+### Kimi 集成
+
+#### API 响应结构
+
+```rust
+pub struct KimiUsagesResponse {
+    pub usage: Option<KimiUsage>,
+    pub limits: Vec<KimiLimit>,
+}
+
+pub struct KimiLimit {
+    pub window: KimiWindow,
+    pub detail: KimiDetail,
+}
+
+pub struct KimiWindow {
+    pub duration: i64,                              // 300=5h, 10080=weekly
+    #[serde(rename = "timeUnit")]
+    pub time_unit: String,                          // "TIME_UNIT_MINUTE"
+}
+
+pub struct KimiDetail {
+    pub limit: i64,                                 // 总配额
+    pub remaining: i64,                             // 剩余
+    #[serde(rename = "resetTime")]
+    pub reset_time: Option<String>,                 // ISO 8601 字符串
+}
+```
+
+#### 窗口匹配
+- 5小时窗口：`duration == 300` 且 `time_unit == "TIME_UNIT_MINUTE"`
+- 周窗口：`duration == 10080`
+
+#### 使用率计算
+```
+used = limit - remaining
+pct = round(used / limit * 100)
+```
+
+#### reset_time 处理
+Kimi 的 `reset_time` 是 **ISO 8601 字符串**（如 `"2026-03-30T18:00:00+08:00"`），而非数字时间戳。需要使用 `chrono::DateTime::parse_from_rfc3339` 解析后转换为本地时间 `HH:MM` 格式。
+
+```rust
+fn format_iso_reset_time(iso_str: &str) -> Option<String> {
+    use chrono::{DateTime, Local, Timelike};
+    let dt: DateTime<chrono::FixedOffset> = chrono::DateTime::parse_from_rfc3339(iso_str).ok()?;
+    let local: DateTime<Local> = dt.with_timezone(&Local);
+    Some(format!("{}:{:02}", local.hour(), local.minute()))
+}
+```
+
+#### 显示格式
+
+**有数据时**：
+```
+Kimi 🪙 12% (⏰ 18:00) · 📅 8%
+```
+
+**无数据时**：
+```
+Kimi 🪙 % (⏰ --:--) · 📅 %
+```
+
+**ASCII 模式（Windows 10）**：
+```
+Kimi $ 12% (T 18:00) · % 8%
+```
+
+**颜色**：256色 79（绿色），加粗
+
+#### Kimi 总是显示周限量
+Kimi 平台所有套餐都有周限量，因此 📅 始终显示。
+
+### 第三方插件参考与 Bug 修复
+
+在参考第三方插件 [CodingPlan_Monitor](https://github.com/arnoldzy/CodingPlan_Monitor) 的源码时，发现了 3 个初始实现中的 Bug：
+
+#### Bug 1：`time_unit` 值不匹配
+
+| 项目 | 错误值 | 正确值 |
+|------|--------|--------|
+| Kimi `time_unit` | `"MINUTE"` | `"TIME_UNIT_MINUTE"` |
+
+**修复**：Rust `kimi_client.rs` 中窗口匹配条件改为 `l.window.time_unit == "TIME_UNIT_MINUTE"`；JS 版本中同时兼容 `time_unit` 和 `timeUnit`（驼峰）。
+
+#### Bug 2：`reset_time` 数据类型不匹配
+
+| 项目 | 错误类型 | 正确类型 |
+|------|---------|---------|
+| Kimi `reset_time` | `Option<i64>`（Unix 秒） | `Option<String>`（ISO 8601） |
+
+**修复**：Rust `kimi_types.rs` 中 `KimiDetail.reset_time` 改为 `Option<String>`，`KimiUsageStats` 的 reset 字段也改为 `Option<String>`。新增 `format_iso_reset_time()` 函数解析 ISO 8601 字符串。JS 版本新增 `fmtIsoReset()` 函数处理 ISO 格式。
+
+#### Bug 3：API 字段名 camelCase 兼容
+
+Kimi API 返回的 JSON 使用 camelCase 命名（如 `resetTime`、`timeUnit`），需要 serde rename 兼容。
+
+**修复**：Rust 类型定义中添加 `#[serde(rename = "timeUnit")]` 和 `#[serde(rename = "resetTime")]`。JS 版本使用 `fiveHour.detail.resetTime || fiveHour.detail.reset_time` 双重兼容。
+
+### 各平台状态栏对比
+
+| 特性 | GLM | MiniMax | Kimi |
+|------|-----|---------|------|
+| 前缀 | `GLM` | `MiniMax` | `Kimi` |
+| 颜色 | 109（青绿） | 208（橙色） | 79（绿色） |
+| 5h 使用率 | 🪙 X% (⏰ HH:MM) | 🪙 X% (⏰ HH:MM) | 🪙 X% (⏰ HH:MM) |
+| 调用次数 | 📊 count | 📊 used/total | — |
+| Token 消耗 | ⚡ X.XXM | — | — |
+| MCP 配额 | 🌐 used/limit | — | — |
+| 周限量 | 📅 X%（新套餐） | 📅 X%（新套餐） | 📅 X%（始终显示） |
+| 认证变量 | `ANTHROPIC_AUTH_TOKEN` | `ANTHROPIC_AUTH_TOKEN` | `ANTHROPIC_API_KEY` |
+| reset_time 类型 | Unix 毫秒 | Unix 秒 | ISO 8601 字符串 |
+| ASCII 降级 | ✅ | ✅ | ✅ |
+| 缓存 TTL | 120 秒 | 120 秒 | 120 秒 |
+| 重试 | 3 次，100ms 间隔 | 3 次，100ms 间隔 | 3 次，100ms 间隔 |
+
+### main.rs 路由逻辑
+
+```rust
+// 模型过滤：只处理 GLM、MiniMax、Kimi 三种平台
+let model_id = input.model.as_ref().map(|m| m.id.to_lowercase()).unwrap_or_default();
+let is_glm = model_id.contains("glm") || model_id.contains("chatglm");
+let is_minimax = model_id.contains("minimax");
+let is_kimi = model_id.contains("kimi");
+if !is_glm && !is_minimax && !is_kimi {
+    return Ok(());
+}
+
+// 注册所有 3 个 Segment（每个 Segment 内部自行过滤模型）
+generator
+    .add_segment(Box::new(GlmUsageSegment::new()))
+    .add_segment(Box::new(MiniMaxUsageSegment::new()))
+    .add_segment(Box::new(KimiUsageSegment::new()));
+```
+
+**双重过滤**：`main.rs` 做第一层过滤（非支持模型直接退出），每个 Segment 的 `collect()` 做第二层过滤（只处理对应平台的模型）。
+
+### 测试结果
+
+| 测试场景 | 输入模型 | 输出结果 |
+|---------|---------|---------|
+| GLM（真实数据） | `glm-4-plus` | `GLM 🪙 4% (⏰ 14:31) · 📊 101 · 🌐 0/1000 · ⚡ 4.72M` ✅ |
+| MiniMax（placeholder） | `minimax-m1` | `MiniMax 🪙 % (⏰ --:--) · 📊 / · 📅 %` ✅ |
+| Kimi（placeholder） | `kimi-k2-0711` | `Kimi 🪙 % (⏰ --:--) · 📅 %` ✅ |
+| Claude（不显示） | `claude-sonnet` | （空输出，状态栏隐藏） ✅ |
+
+### 编译与部署
+
+```powershell
+cd "C:\Users\18773\Desktop\glm-plan-usage-community"
+cargo build --release
+```
+
+编译成功后替换部署文件：
+- Rust 二进制：`target/release/glm-plan-usage` → `~/.claude/glm-plan-usage/`
+- JS 文件：`npm/main/bin/glm-plan-usage-pure.js` → `~/.claude/glm-plan-usage/`
+
+### 总结
+
+1. **新增 MiniMax 平台**：支持 5 小时配额使用率、调用次数（used/total）、周限量（新套餐）
+2. **新增 Kimi 平台**：支持 5 小时配额使用率、周限量（始终显示），使用 `ANTHROPIC_API_KEY` 认证
+3. **零配置切换**：复用 cc-switch 的环境变量，自动检测平台并路由
+4. **Bug 修复**：修复 `time_unit` 值、`reset_time` 数据类型、camelCase 字段名三个问题
+5. **双版本同步**：Rust 和 JS 版本功能完全一致，包含缓存、重试、ASCII 降级
+6. **架构扩展**：遵循现有 Segment trait 模式，新增平台只需添加 types + client + segment 三个文件

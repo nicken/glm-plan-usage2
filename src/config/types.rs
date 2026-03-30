@@ -51,7 +51,11 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             style: StyleConfig::default(),
-            segments: vec![SegmentConfig::default_glm_usage()],
+            segments: vec![
+                SegmentConfig::default_glm_usage(),
+                SegmentConfig::default_minimax_usage(),
+                SegmentConfig::default_kimi_usage(),
+            ],
             api: ApiConfig::default(),
             cache: CacheConfig::default(),
         }
@@ -104,6 +108,36 @@ impl SegmentConfig {
 
         Self {
             id: "glm_usage".to_string(),
+            enabled: true,
+            colors,
+            styles,
+        }
+    }
+
+    pub fn default_minimax_usage() -> Self {
+        let mut colors = HashMap::new();
+        colors.insert("text".to_string(), AnsiColor::C256 { c256: 208 });
+
+        let mut styles = HashMap::new();
+        styles.insert("text_bold".to_string(), true);
+
+        Self {
+            id: "minimax_usage".to_string(),
+            enabled: true,
+            colors,
+            styles,
+        }
+    }
+
+    pub fn default_kimi_usage() -> Self {
+        let mut colors = HashMap::new();
+        colors.insert("text".to_string(), AnsiColor::C256 { c256: 79 });
+
+        let mut styles = HashMap::new();
+        styles.insert("text_bold".to_string(), true);
+
+        Self {
+            id: "kimi_usage".to_string(),
             enabled: true,
             colors,
             styles,
