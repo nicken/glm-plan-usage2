@@ -4,6 +4,8 @@
 
 Claude Code 状态栏插件，实时显示 GLM / MiniMax / Kimi 多平台算力套餐使用量。
 
+> **提示：** GLM 和 MiniMax 已测试通过，Kimi 未实际测试。优先使用 Node.js 版本，Rust 版本在某些环境下可能出现不兼容。
+
 ## 功能
 
 - 🪙 5 小时 Token 配额使用率 + 重置时间
@@ -118,6 +120,48 @@ Kimi $ 12% (T 18:00) · % 8%
 ### Windows 路径
 
 Windows 下将路径中的 `~` 替换为 `C:/Users/你的用户名`。
+
+## 环境变量
+
+### GLM 平台
+
+| 变量名 | 必需 | 说明 |
+|--------|------|------|
+| `ANTHROPIC_AUTH_TOKEN` | 是 | 智谱 API Key |
+| `ANTHROPIC_BASE_URL` | 否 | 默认 `https://open.bigmodel.cn/api/anthropic` |
+
+### MiniMax 平台
+
+| 变量名 | 必需 | 说明 |
+|--------|------|------|
+| `ANTHROPIC_AUTH_TOKEN` | 是 | MiniMax API Key |
+| `ANTHROPIC_BASE_URL` | 是 | 设为 `https://api.minimaxi.com/anthropic` |
+| `HERTZ_SESSION` | 是 | MiniMax Cookie（用于查询用量） |
+
+MiniMax 用量查询 API 需要 Cookie 认证，不支持 API Key。获取步骤：
+
+1. 登录 MiniMax 开发平台
+2. 进入 **账户管理 → 套餐管理 → Token Plan**
+3. F12 → 网络（Network）→ 搜索 `remains`
+4. 点击请求 → 查看请求头中 Cookie → 找到 `HERTZ-SESSION=xxx`
+5. 复制 `=` 后面的值
+
+设置环境变量：
+
+```cmd
+setx HERTZ_SESSION "复制的值"
+```
+
+或通过系统设置：Win+R → `sysdm.cpl` → 高级 → 环境变量 → 新建用户变量。
+
+> **注意：** Cookie 会过期，过期后需重新获取。设置后需重启终端/droid 才能生效。
+
+### Kimi 平台
+
+| 变量名 | 必需 | 说明 |
+|--------|------|------|
+| `ANTHROPIC_API_KEY` | 是 | Kimi API Key |
+| `ANTHROPIC_BASE_URL` | 是 | 设为 Kimi 的 API 地址 |
 
 ## 配置选项
 

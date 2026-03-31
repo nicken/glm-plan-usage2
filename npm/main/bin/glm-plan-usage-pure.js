@@ -252,11 +252,41 @@ function buildMiniMaxClient() {
   const match = baseUrl.match(/^(https?:\/\/[^/]+)/);
   const domain = match ? match[1] : baseUrl;
 
+  // Read cookie: prefer MINIMAX_COOKIE, fall back to HERTZ_SESSION
+  let cookie = getEnv("MINIMAX_COOKIE") || "";
+  if (!cookie) {
+    const hertz = getEnv("HERTZ_SESSION");
+    if (hertz) cookie = "HERTZ-SESSION=" + hertz;
+  }
+
   return {
     token,
     domain,
+    cookie,
     async fetchRemains() {
-      return request(`${domain}/v1/api/openplatform/coding_plan/remains`, this.token);
+      const url = `${domain}/v1/api/openplatform/coding_plan/remains`;
+      const headers = {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      };
+      if (cookie) headers["Cookie"] = cookie;
+      return new Promise((resolve, reject) => {
+        const mod = url.startsWith("https") ? https : http;
+        const req = mod.get(url, { timeout: API_TIMEOUT, headers }, (res) => {
+          if (res.statusCode !== 200) {
+            res.resume();
+            return reject(new Error(`HTTP ${res.statusCode}`));
+          }
+          let data = "";
+          res.on("data", (c) => (data += c));
+          res.on("end", () => {
+            try { resolve(JSON.parse(data)); }
+            catch { reject(new Error("JSON parse error")); }
+          });
+        });
+        req.on("error", reject);
+        req.on("timeout", () => { req.destroy(); reject(new Error("timeout")); });
+      });
     },
   };
 }
@@ -278,19 +308,27 @@ async function fetchMiniMaxStats(client) {
   const codingModel = (body.model_remains || []).find(m => m.model_name && m.model_name.startsWith("MiniMax-M"));
   if (!codingModel) return null;
 
-  const intervalPct = codingModel.current_interval_total_count > 0
-    ? Math.round((codingModel.current_interval_usage_count / codingModel.current_interval_total_count) * 100)
+  // API returns "remains" values, so usage_count = remaining, not used
+  const intervalRemaining = codingModel.current_interval_usage_count;
+  const intervalTotal = codingModel.current_interval_total_count;
+  const intervalUsed = intervalTotal - intervalRemaining;
+  const intervalPct = intervalTotal > 0
+    ? Math.round((intervalUsed / intervalTotal) * 100)
     : 0;
 
   const hasWeekly = codingModel.current_weekly_total_count > 0;
-  const weeklyPct = hasWeekly
-    ? Math.round((codingModel.current_weekly_usage_count / codingModel.current_weekly_total_count) * 100)
-    : null;
+  let weeklyPct = null;
+  if (hasWeekly) {
+    const weeklyRemaining = codingModel.current_weekly_usage_count;
+    const weeklyTotal = codingModel.current_weekly_total_count;
+    const weeklyUsed = weeklyTotal - weeklyRemaining;
+    weeklyPct = weeklyTotal > 0 ? Math.round((weeklyUsed / weeklyTotal) * 100) : 0;
+  }
 
   const result = {
     intervalPct,
-    intervalUsed: codingModel.current_interval_usage_count,
-    intervalTotal: codingModel.current_interval_total_count,
+    intervalUsed,
+    intervalTotal,
     resetTime: codingModel.end_time || null,
     weeklyPct,
   };

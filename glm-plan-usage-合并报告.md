@@ -2126,3 +2126,138 @@ cargo build --release
 4. **Bug 修复**：修复 `time_unit` 值、`reset_time` 数据类型、camelCase 字段名三个问题
 5. **双版本同步**：Rust 和 JS 版本功能完全一致，包含缓存、重试、ASCII 降级
 6. **架构扩展**：遵循现有 Segment trait 模式，新增平台只需添加 types + client + segment 三个文件
+
+---
+
+## 11. MiniMax Cookie 认证与重置时间修复（2026-03-31）
+
+### 修改时间
+2026-03-31
+
+### 修改目的
+修复 MiniMax 平台用量显示的三个问题：
+1. API 需要 Cookie 认证但不支持 API Key
+2. 用量计算错误（显示 89% 而实际 11%）
+3. 重置时间显示 `0:00` 而非正确时间
+
+### Bug 1：Cookie 认证
+
+#### 问题描述
+MiniMax 用量查询 API（`/v1/api/openplatform/coding_plan/remains`）需要 Cookie 认证（`HERTZ-SESSION`），不支持 Bearer Token（API Key）认证。
+
+这是 MiniMax 官方的 bug：
+- API 端点需要 Cookie 认证
+- 但 Cookie 只存在于 `platform.minimaxi.com`，不能跨域共享到 `api.minimaxi.com`
+- API Key 认证不被支持
+
+#### 解决方案
+通过**程序直接构造 HTTP 请求**并手动添加 `Cookie` 请求头，绕过浏览器的跨域 Cookie 限制。
+
+浏览器被同源策略限制，`platform.minimaxi.com` 的 Cookie 不会自动发送给 `api.minimaxi.com`。但程序发 HTTP 请求没有这个限制，手动把 `Cookie: HERTZ-SESSION=xxx` 加到请求头即可。
+
+#### 获取 HERTZ_SESSION 步骤
+
+1. 登录 MiniMax 开发平台
+2. 进入 **账户管理 → 套餐管理 → Token Plan**
+3. F12 → 网络（Network）→ 搜索 `remains`
+4. 点击请求 → 查看请求头中 Cookie → 找到 `HERTZ-SESSION=xxx`
+5. 复制 `=` 后面的值
+
+#### 配置环境变量
+
+**方法1：命令行（推荐）**
+```cmd
+setx HERTZ_SESSION "复制的值"
+```
+
+**方法2：系统设置**
+1. Win+R → 输入 `sysdm.cpl` → 回车
+2. 高级 → 环境变量
+3. 用户变量 → 新建
+4. 变量名：`HERTZ_SESSION`，变量值：粘贴 Cookie 值
+5. 确定
+
+设置后需要**重启终端/droid**才能生效。
+
+#### 注意事项
+- Cookie 会过期，过期后需要重新获取并设置
+- 也可以设置 `MINIMAX_COOKIE` 环境变量直接传入完整 Cookie 字符串
+- 如果设置了 `HERTZ_SESSION`，程序会自动拼成 `HERTZ-SESSION=xxx` 格式
+
+#### 代码变更
+
+**Rust 版本 (src/api/minimax_client.rs)**
+- 新增 `cookie: Option<String>` 字段
+- `from_env()` 中读取 `MINIMAX_COOKIE` 或 `HERTZ_SESSION` 环境变量
+- `authenticated_request()` 中添加 `Cookie` 请求头
+
+**JS 版本 (npm/main/bin/glm-plan-usage-pure.js)**
+- `buildMiniMaxClient()` 中读取 `MINIMAX_COOKIE` 或 `HERTZ_SESSION`
+- MiniMax 请求使用自定义 fetch 逻辑添加 `Cookie` 头
+
+### Bug 2：用量计算错误
+
+#### 问题描述
+显示 `89%` 但网站显示 `11%`，`535/600` 但网站显示 `63/600`。
+
+#### 根本原因
+API 字段 `current_interval_usage_count` 是**剩余量**（remaining），而非已用量（used）。
+
+#### 修复
+```rust
+// 修改前（错误）
+let interval_used = model.current_interval_usage_count;
+
+// 修改后（正确）
+let interval_remaining = model.current_interval_usage_count;
+let interval_total = model.current_interval_total_count;
+let interval_used = interval_total - interval_remaining;
+```
+
+周限量同样修复：`w_used = w_total - weekly_remaining`
+
+### Bug 3：重置时间显示 0:00
+
+#### 问题描述
+MiniMax 重置时间显示 `0:00`，而非正确时间（如 `15:00`）。JS 版本显示正确，Rust 版本错误。
+
+#### 根本原因
+MiniMax API 返回的 `end_time` 是**毫秒级时间戳**（如 `1743427200000`）。
+- **JS 版本**：`new Date(ms)` 原生接受毫秒，正确解析
+- **Rust 版本**：`Local.timestamp_opt(reset_at, 0)` 接受秒级时间戳，把毫秒当成秒处理
+
+#### 修复（src/core/segments/minimax_usage.rs）
+```rust
+// 修改前
+fn format_reset_time(reset_at: i64) -> Option<String> {
+    let dt: DateTime<Local> = Local.timestamp_opt(reset_at, 0).single()?;
+    ...
+}
+
+// 修改后
+fn format_reset_time(reset_at_ms: i64) -> Option<String> {
+    let secs = reset_at_ms / 1000;
+    let dt: DateTime<Local> = Local.timestamp_opt(secs, 0).single()?;
+    ...
+}
+```
+
+### 最终效果
+
+修复前：
+```
+MiniMax 🪙 89% (⏰ 0:00) · 📊 535/600 · 📅 99%
+```
+
+修复后：
+```
+MiniMax 🪙 12% (⏰ 15:00) · 📊 69/600 · 📅 1%
+```
+
+### 相关文件
+
+| 文件 | 修改内容 |
+|------|---------|
+| `src/api/minimax_client.rs` | Cookie 认证、用量计算修复 |
+| `src/core/segments/minimax_usage.rs` | 毫秒时间戳转秒 |
+| `npm/main/bin/glm-plan-usage-pure.js` | Cookie 认证、用量计算修复 |

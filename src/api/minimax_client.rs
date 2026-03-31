@@ -8,11 +8,13 @@ pub struct MiniMaxApiClient {
     agent: Agent,
     base_url: String,
     token: String,
+    cookie: Option<String>,
 }
 
 impl MiniMaxApiClient {
     /// Create client from environment variables.
     /// Requires `ANTHROPIC_BASE_URL` containing `minimaxi.com` or `minimax.io`.
+    /// Uses `MINIMAX_COOKIE` or `HERTZ_SESSION` env var for Cookie auth.
     pub fn from_env() -> Result<Self> {
         let token = std::env::var("ANTHROPIC_AUTH_TOKEN")
             .map_err(|_| anyhow::anyhow!("Missing ANTHROPIC_AUTH_TOKEN"))?;
@@ -28,6 +30,14 @@ impl MiniMaxApiClient {
         // Extract domain for monitor API (same domain)
         let monitor_base = extract_domain(&base_url);
 
+        // Read cookie: prefer MINIMAX_COOKIE, fall back to HERTZ_SESSION
+        let cookie = std::env::var("MINIMAX_COOKIE")
+            .or_else(|_| {
+                std::env::var("HERTZ_SESSION")
+                    .map(|v| format!("HERTZ-SESSION={}", v))
+            })
+            .ok();
+
         let agent = ureq::AgentBuilder::new()
             .timeout(Duration::from_secs(5))
             .build();
@@ -36,6 +46,7 @@ impl MiniMaxApiClient {
             agent,
             base_url: monitor_base,
             token,
+            cookie,
         })
     }
 
@@ -88,11 +99,12 @@ impl MiniMaxApiClient {
             None => return Err(anyhow::anyhow!("No coding model found in response")),
         };
 
-        let interval_pct = if model.current_interval_total_count > 0 {
-            ((model.current_interval_usage_count as f64
-                / model.current_interval_total_count as f64)
-                * 100.0)
-                .round() as u8
+        // API returns "remains" values, so usage_count = remaining, not used
+        let interval_remaining = model.current_interval_usage_count;
+        let interval_total = model.current_interval_total_count;
+        let interval_used = interval_total - interval_remaining;
+        let interval_pct = if interval_total > 0 {
+            ((interval_used as f64 / interval_total as f64) * 100.0).round() as u8
         } else {
             0
         };
@@ -100,13 +112,17 @@ impl MiniMaxApiClient {
         // Weekly: only show if weekly_total > 0 (old plans have weekly_total_count=0)
         let (weekly_used, weekly_total, weekly_pct, weekly_reset) =
             if model.current_weekly_total_count > 0 {
-                let pct = ((model.current_weekly_usage_count as f64
-                    / model.current_weekly_total_count as f64)
-                    * 100.0)
-                    .round() as u8;
+                let weekly_remaining = model.current_weekly_usage_count;
+                let w_total = model.current_weekly_total_count;
+                let w_used = w_total - weekly_remaining;
+                let pct = if w_total > 0 {
+                    ((w_used as f64 / w_total as f64) * 100.0).round() as u8
+                } else {
+                    0
+                };
                 (
-                    Some(model.current_weekly_usage_count),
-                    Some(model.current_weekly_total_count),
+                    Some(w_used),
+                    Some(w_total),
                     Some(pct),
                     model.weekly_end_time,
                 )
@@ -115,8 +131,8 @@ impl MiniMaxApiClient {
             };
 
         Ok(MiniMaxUsageStats {
-            interval_used: model.current_interval_usage_count,
-            interval_total: model.current_interval_total_count,
+            interval_used,
+            interval_total,
             interval_pct,
             reset_time: model.end_time,
             weekly_used,
@@ -127,10 +143,17 @@ impl MiniMaxApiClient {
     }
 
     fn authenticated_request(&self, url: &str) -> Request {
-        self.agent
+        let mut req = self
+            .agent
             .get(url)
             .set("Authorization", &format!("Bearer {}", self.token))
-            .set("Content-Type", "application/json")
+            .set("Content-Type", "application/json");
+
+        if let Some(ref cookie) = self.cookie {
+            req = req.set("Cookie", cookie);
+        }
+
+        req
     }
 }
 

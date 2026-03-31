@@ -8,9 +8,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// Format reset time as absolute time (HH:MM)
-fn format_reset_time(reset_at: i64) -> Option<String> {
+/// Input is a millisecond timestamp from MiniMax API.
+fn format_reset_time(reset_at_ms: i64) -> Option<String> {
     use chrono::{DateTime, Local, TimeZone, Timelike};
-    let dt: DateTime<Local> = Local.timestamp_opt(reset_at, 0).single()?;
+    let secs = reset_at_ms / 1000;
+    let dt: DateTime<Local> = Local.timestamp_opt(secs, 0).single()?;
     Some(format!("{}:{:02}", dt.hour(), dt.minute()))
 }
 

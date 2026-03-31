@@ -4,6 +4,8 @@ English | [简体中文](README.md)
 
 Claude Code status bar plugin that displays real-time GLM / MiniMax / Kimi multi-platform usage statistics.
 
+> **Note:** GLM and MiniMax have been tested successfully. Kimi has not been tested yet. The Node.js version is recommended; the Rust version may have compatibility issues in some environments.
+
 ## Features
 
 - 🪙 5-hour Token quota usage percentage + reset time
@@ -118,6 +120,48 @@ Add to Claude Code `settings.json`:
 ### Windows Paths
 
 On Windows, replace `~` with `C:/Users/YourUsername` in the paths.
+
+## Environment Variables
+
+### GLM Platform
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ANTHROPIC_AUTH_TOKEN` | Yes | ZHIPU API Key |
+| `ANTHROPIC_BASE_URL` | No | Default: `https://open.bigmodel.cn/api/anthropic` |
+
+### MiniMax Platform
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ANTHROPIC_AUTH_TOKEN` | Yes | MiniMax API Key |
+| `ANTHROPIC_BASE_URL` | Yes | Set to `https://api.minimaxi.com/anthropic` |
+| `HERTZ_SESSION` | Yes | MiniMax Cookie (required for usage query) |
+
+MiniMax usage query API requires Cookie authentication; API Key is not supported. To obtain:
+
+1. Log in to MiniMax Developer Platform
+2. Go to **Account Management → Plan Management → Token Plan**
+3. Open DevTools (F12) → Network tab → search for `remains`
+4. Click the request → check request headers for Cookie → find `HERTZ-SESSION=xxx`
+5. Copy the value after `=`
+
+Set environment variable:
+
+```cmd
+setx HERTZ_SESSION "the_copied_value"
+```
+
+Or via System Settings: Win+R → `sysdm.cpl` → Advanced → Environment Variables → New user variable.
+
+> **Note:** The Cookie expires periodically. After setting, restart your terminal/droid for it to take effect.
+
+### Kimi Platform
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ANTHROPIC_API_KEY` | Yes | Kimi API Key |
+| `ANTHROPIC_BASE_URL` | Yes | Set to Kimi's API URL |
 
 ## Configuration Options
 
