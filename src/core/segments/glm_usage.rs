@@ -87,7 +87,7 @@ impl GlmUsageSegment {
 
         // Character mapping based on mode
         let (token_icon, clock_icon, chart_icon, calendar_icon, globe_icon, lightning_icon) = match char_mode {
-            CharMode::Emoji => ("🪙", "⏰", "📊", "📅", "🌐", "⚡"),
+            CharMode::Emoji => ("🔋", "⏰", "📊", "📅", "🌐", "⚡"),
             CharMode::Ascii => ("$", "T", "#", "%", "M", "k"),
         };
 
@@ -98,7 +98,7 @@ impl GlmUsageSegment {
                 .and_then(format_reset_time)
                 .unwrap_or_else(|| "--:--".to_string());
 
-            parts.push(format!("{} {}% ({} {})", token_icon, token.percentage, clock_icon, reset_time));
+            parts.push(format!("{} {}% · {} {}", token_icon, token.percentage, clock_icon, reset_time));
         }
 
         // Call count (raw number only)
@@ -166,10 +166,10 @@ impl Segment for GlmUsageSegment {
             None => {
                 // Placeholder format when no data
                 let (token_icon, clock_icon, chart_icon, _calendar_icon, globe_icon, lightning_icon) = match self.char_mode {
-                    CharMode::Emoji => ("🪙", "⏰", "📊", "📅", "🌐", "⚡"),
+                    CharMode::Emoji => ("🔋", "⏰", "📊", "📅", "🌐", "⚡"),
                     CharMode::Ascii => ("$", "T", "#", "%", "M", "k"),
                 };
-                let text = format!("GLM {} % ({} --:--) · {} 0 · {} / · {}", token_icon, clock_icon, chart_icon, globe_icon, lightning_icon);
+                let text = format!("GLM {} % · {} --:-- · {} 0 · {} / · {}", token_icon, clock_icon, chart_icon, globe_icon, lightning_icon);
                 let style = SegmentStyle { color_256: Some(109), bold: true, color: None };
                 (text, style)
             }

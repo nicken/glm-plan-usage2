@@ -63,7 +63,7 @@ impl KimiUsageSegment {
 
     fn format_stats(stats: &KimiUsageStats, char_mode: CharMode) -> String {
         let (token_icon, clock_icon, calendar_icon) = match char_mode {
-            CharMode::Emoji => ("🪙", "⏰", "📅"),
+            CharMode::Emoji => ("🔋", "⏰", "📅"),
             CharMode::Ascii => ("$", "T", "%"),
         };
 
@@ -76,7 +76,7 @@ impl KimiUsageSegment {
             .and_then(format_iso_reset_time)
             .unwrap_or_else(|| "--:--".to_string());
         parts.push(format!(
-            "{} {}% ({} {})",
+            "{} {}% · {} {}",
             token_icon, stats.five_hour_pct, clock_icon, reset_time
         ));
 
@@ -88,11 +88,11 @@ impl KimiUsageSegment {
 
     fn placeholder_text(&self) -> String {
         let (token_icon, clock_icon, calendar_icon) = match self.char_mode {
-            CharMode::Emoji => ("🪙", "⏰", "📅"),
+            CharMode::Emoji => ("🔋", "⏰", "📅"),
             CharMode::Ascii => ("$", "T", "%"),
         };
         format!(
-            "Kimi {} % ({} --:--) · {} %",
+            "Kimi {} % · {} --:-- · {} %",
             token_icon, clock_icon, calendar_icon
         )
     }

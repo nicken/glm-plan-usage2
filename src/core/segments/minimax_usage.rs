@@ -64,7 +64,7 @@ impl MiniMaxUsageSegment {
 
     fn format_stats(stats: &MiniMaxUsageStats, char_mode: CharMode) -> String {
         let (token_icon, clock_icon, chart_icon, calendar_icon) = match char_mode {
-            CharMode::Emoji => ("🪙", "⏰", "📊", "📅"),
+            CharMode::Emoji => ("🔋", "⏰", "📊", "📅"),
             CharMode::Ascii => ("$", "T", "#", "%"),
         };
 
@@ -76,7 +76,7 @@ impl MiniMaxUsageSegment {
             .and_then(format_reset_time)
             .unwrap_or_else(|| "--:--".to_string());
         parts.push(format!(
-            "{} {}% ({} {})",
+            "{} {}% · {} {}",
             token_icon, stats.interval_pct, clock_icon, reset_time
         ));
 
@@ -96,11 +96,11 @@ impl MiniMaxUsageSegment {
 
     fn placeholder_text(&self) -> String {
         let (token_icon, clock_icon, chart_icon, calendar_icon) = match self.char_mode {
-            CharMode::Emoji => ("🪙", "⏰", "📊", "📅"),
+            CharMode::Emoji => ("🔋", "⏰", "📊", "📅"),
             CharMode::Ascii => ("$", "T", "#", "%"),
         };
         format!(
-            "MiniMax {} % ({} --:--) · {} / · {} %",
+            "MiniMax {} % · {} --:-- · {} / · {} %",
             token_icon, clock_icon, chart_icon, calendar_icon
         )
     }

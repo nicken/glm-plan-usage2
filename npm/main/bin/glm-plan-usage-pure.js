@@ -201,7 +201,7 @@ function format(stats, charMode) {
     globe: "M",
     lightning: "k"
   } : {
-    token: "🪙",
+    token: "🔋",
     clock: "⏰",
     chart: "📊",
     calendar: "📅",
@@ -211,29 +211,29 @@ function format(stats, charMode) {
 
   // When no stats available, show placeholder format
   if (!stats) {
-    return `${color256(109)}\x1b[1mGLM ${icons.token} % (${icons.clock} --:--) · ${icons.chart} 0 · ${icons.globe} / · ${icons.lightning}${reset()}`;
+    return `${color256(109)}\x1b[1mGLM ${icons.token} % · ${icons.clock} --:-- · ${icons.chart} 0 · ${icons.globe} / · ${icons.lightning}${reset()}`;
   }
 
   const parts = [];
 
   if (stats.tokenLimit) {
-    parts.push(`${icons.token} ${stats.tokenLimit.percentage}% (${icons.clock} ${fmtReset(stats.tokenLimit.nextResetTime)})`);
+    parts.push(`${icons.token} ${stats.tokenLimit.percentage}% · ${icons.clock} ${fmtReset(stats.tokenLimit.nextResetTime)}`);
   }
 
   if (stats.callCount != null) {
-    parts.push(`${icons.chart} ${stats.callCount}`);
+    parts.push(`${icons.chart}·${stats.callCount}`);
   }
 
   if (stats.weeklyLimit) {
-    parts.push(`${icons.calendar} ${stats.weeklyLimit.percentage}%`);
+    parts.push(`${icons.calendar}·${stats.weeklyLimit.percentage}%`);
   }
 
   if (stats.mcpLimit) {
-    parts.push(`${icons.globe} ${stats.mcpLimit.currentValue}/${stats.mcpLimit.usage}`);
+    parts.push(`${icons.globe}·${stats.mcpLimit.currentValue}/${stats.mcpLimit.usage}`);
   }
 
   if (stats.tokensUsed != null) {
-    parts.push(`${icons.lightning} ${fmtTokens(stats.tokensUsed)}`);
+    parts.push(`${icons.lightning}·${fmtTokens(stats.tokensUsed)}`);
   }
 
   if (parts.length === 0) return "";
@@ -339,17 +339,17 @@ async function fetchMiniMaxStats(client) {
 function formatMiniMax(stats, charMode) {
   const icons = charMode === CharMode.Ascii
     ? { token: "$", clock: "T", chart: "#", calendar: "%" }
-    : { token: "🪙", clock: "⏰", chart: "📊", calendar: "📅" };
+    : { token: "🔋", clock: "⏰", chart: "📊", calendar: "📅" };
 
   if (!stats) {
-    return `${color256(208)}\x1b[1mMiniMax ${icons.token} % (${icons.clock} --:--) · ${icons.chart} / · ${icons.calendar} %${reset()}`;
+    return `${color256(208)}\x1b[1mMiniMax ${icons.token} % · ${icons.clock} --:-- · ${icons.chart} / · ${icons.calendar} %${reset()}`;
   }
 
   const parts = [];
-  parts.push(`${icons.token} ${stats.intervalPct}% (${icons.clock} ${fmtReset(stats.resetTime)})`);
+  parts.push(`${icons.token} ${stats.intervalPct}% · ${icons.clock} ${fmtReset(stats.resetTime)}`);
   parts.push(`${icons.chart} ${stats.intervalUsed}/${stats.intervalTotal}`);
   if (stats.weeklyPct != null) {
-    parts.push(`${icons.calendar} ${stats.weeklyPct}%`);
+    parts.push(`${icons.calendar}·${stats.weeklyPct}%`);
   }
 
   return `${color256(208)}\x1b[1mMiniMax ${parts.join(" · ")}${reset()}`;
@@ -420,15 +420,15 @@ async function fetchKimiStats(client) {
 function formatKimi(stats, charMode) {
   const icons = charMode === CharMode.Ascii
     ? { token: "$", clock: "T", calendar: "%" }
-    : { token: "🪙", clock: "⏰", calendar: "📅" };
+    : { token: "🔋", clock: "⏰", calendar: "📅" };
 
   if (!stats) {
-    return `${color256(79)}\x1b[1mKimi ${icons.token} % (${icons.clock} --:--) · ${icons.calendar} %${reset()}`;
+    return `${color256(79)}\x1b[1mKimi ${icons.token} % · ${icons.clock} --:-- · ${icons.calendar} %${reset()}`;
   }
 
   const parts = [];
-  parts.push(`${icons.token} ${stats.fiveHourPct}% (${icons.clock} ${fmtIsoReset(stats.fiveHourReset)})`);
-  parts.push(`${icons.calendar} ${stats.weeklyPct}%`);
+  parts.push(`${icons.token} ${stats.fiveHourPct}% · ${icons.clock} ${fmtIsoReset(stats.fiveHourReset)}`);
+  parts.push(`${icons.calendar}·${stats.weeklyPct}%`);
 
   return `${color256(79)}\x1b[1mKimi ${parts.join(" · ")}${reset()}`;
 }
